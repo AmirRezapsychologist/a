@@ -7,43 +7,109 @@
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
 
   <script>
-    // کامپوننت هوشمند اتصال نیشگون دست و تریگر به کلیک المان نشانه رفته
-    AFRAME.registerComponent('pinch-raycast-click', {
+    // سیستم جامع تعامل دست: نیشگون لیزری + لمس فیزیکی مستقیم (Poke)
+    AFRAME.registerComponent('universal-vr-interaction', {
       init: function () {
-        const el = this.el;
+        const sceneEl = this.el.sceneEl;
+        this.activeIntersections = new Set();
 
-        const performClick = () => {
-          const raycaster = el.components.raycaster;
-          if (raycaster && raycaster.intersectedEls.length > 0) {
-            // المان هدف که اشعه زرد به آن تابیده شده است
-            const targetEl = raycaster.intersectedEls[0];
-            targetEl.emit('click');
-            
-            // بازخورد حسی صوتی مختصر (Web Audio API)
-            try {
-              const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-              const osc = audioCtx.createOscillator();
-              const gain = audioCtx.createGain();
-              osc.connect(gain);
-              gain.connect(audioCtx.destination);
-              osc.frequency.setValueAtTime(800, audioCtx.currentTime);
-              gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-              gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
-              osc.start();
-              osc.stop(audioCtx.currentTime + 0.1);
-            } catch (e) {}
+        // 1. شنود رسمی وب‌اکس‌آر روی سشن مرورگر کوئست
+        sceneEl.addEventListener('enter-vr', () => {
+          const session = sceneEl.xrSession;
+          if (session) {
+            session.addEventListener('select', (evt) => {
+              this.triggerFocusedClick();
+            });
+            session.addEventListener('selectstart', () => {
+              this.triggerFocusedClick();
+            });
           }
-        };
+        });
 
-        // شنود رویدادهای دست و کنترلر
-        el.addEventListener('pinchstarted', performClick);
-        el.addEventListener('select', performClick);
-        el.addEventListener('triggerdown', performClick);
-        el.addEventListener('click', performClick);
+        // 2. شنود ایونت‌های دست و کنترلر در A-Frame
+        const fireAction = () => this.triggerFocusedClick();
+        this.el.addEventListener('pinchstarted', fireAction);
+        this.el.addEventListener('triggerdown', fireAction);
+        this.el.addEventListener('select', fireAction);
+
+        // رصد اجسامی که اشعه زرد هم‌اکنون روی آن‌ها قرار دارد
+        this.el.addEventListener('raycaster-intersection', (evt) => {
+          if (evt.detail.els) {
+            evt.detail.els.forEach(el => this.activeIntersections.add(el));
+          }
+        });
+        this.el.addEventListener('raycaster-intersection-cleared', (evt) => {
+          if (evt.detail.clearedEls) {
+            evt.detail.clearedEls.forEach(el => this.activeIntersections.delete(el));
+          }
+        });
+      },
+
+      // اجرای کلیک روی المان نشانه‌رفته با اشعه
+      triggerFocusedClick: function () {
+        let clicked = false;
+        
+        // اگر اشعه روی جسمی باشد
+        this.activeIntersections.forEach(targetEl => {
+          if (targetEl && targetEl.classList.contains('clickable')) {
+            targetEl.emit('click', null, true);
+            this.playClickAudio();
+            clicked = true;
+          }
+        });
+
+        // پشتیبانی مستقیم از کامپوننت raycaster داخلی
+        if (!clicked && this.el.components.raycaster) {
+          const intersected = this.el.components.raycaster.intersectedEls;
+          if (intersected && intersected.length > 0) {
+            const target = intersected[0];
+            target.emit('click', null, true);
+            this.playClickAudio();
+          }
+        }
+      },
+
+      // امکان لمس فیزیکی مستقیم دکمه با نوک دست در دنیای واقعی
+      tick: function () {
+        const handPos = new THREE.Vector3();
+        this.el.object3D.getWorldPosition(handPos);
+
+        const clickables = document.querySelectorAll('.clickable');
+        clickables.forEach(el => {
+          if (!el.getAttribute('visible') && el.parentElement && !el.parentElement.getAttribute('visible')) return;
+          
+          const objPos = new THREE.Vector3();
+          el.object3D.getWorldPosition(objPos);
+          
+          // اگر دست به کمتر از 18 سانتی‌متری دکمه رسید (لمس فیزیکی)
+          if (handPos.distanceTo(objPos) < 0.18) {
+            if (!el.__isTouched) {
+              el.__isTouched = true;
+              el.emit('click', null, true);
+              this.playClickAudio();
+              setTimeout(() => { el.__isTouched = false; }, 800);
+            }
+          }
+        });
+      },
+
+      playClickAudio: function () {
+        try {
+          const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+          gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+          gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.08);
+          osc.start();
+          osc.stop(audioCtx.currentTime + 0.08);
+        } catch (e) {}
       }
     });
 
-    // مدیریت انیمیشن و تغییر رنگ دکمه در زمان نشانه رفتن (Hover Effect)
+    // افکت شناوری و بازخورد لمسی (Hover Effect)
     AFRAME.registerComponent('interactive-hover', {
       schema: {
         hoverColor: { type: 'color', default: '#38BDF8' },
@@ -53,7 +119,7 @@
         const el = this.el;
         el.addEventListener('raycaster-intersected', () => {
           el.setAttribute('color', this.data.hoverColor);
-          el.setAttribute('scale', '1.05 1.05 1.05');
+          el.setAttribute('scale', '1.08 1.08 1.08');
         });
         el.addEventListener('raycaster-intersected-cleared', () => {
           el.setAttribute('color', this.data.defaultColor);
@@ -116,24 +182,24 @@
     <!-- سیستم ردیابی دست‌ها، کنترلرها و دوربین -->
     <a-entity id="rig">
       <a-camera position="0 1.6 0">
-        <!-- کرسر کمکی برای تست راحت با ماوس روی دسکتاپ -->
-        <a-cursor fuse="false" raycaster="objects: .clickable" color="#FACC15" scale="0.4 0.4 0.4"></a-cursor>
+        <!-- کرسر کمکی نگاه: در صورت نگاه به دکمه و نیشگون هم فعال می‌شود -->
+        <a-cursor fuse="false" raycaster="objects: .clickable" color="#FACC15" scale="0.3 0.3 0.3"></a-cursor>
       </a-camera>
 
-      <!-- دست راست مجهز به رهگیری دست و اتصال مستقیم نیشگون به اشعه -->
+      <!-- دست راست مجهز به ردیابی دست و اشعه همگام با نیشگون و لمس -->
       <a-entity id="rightHand"
                 hand-tracking-controls="hand: right; modelStyle: mesh"
-                laser-controls="hand: right"
-                raycaster="objects: .clickable; showLine: true; lineColor: #FACC15; far: 5"
-                pinch-raycast-click>
+                raycaster="objects: .clickable; showLine: true; lineColor: #FACC15; far: 6; interval: 50"
+                cursor="downEvents: pinchstarted, selectstart, triggerdown; upEvents: pinchended, selectend, triggerup"
+                universal-vr-interaction>
       </a-entity>
 
       <!-- دست چپ -->
       <a-entity id="leftHand"
                 hand-tracking-controls="hand: left; modelStyle: mesh"
-                laser-controls="hand: left"
-                raycaster="objects: .clickable; showLine: true; lineColor: #FACC15; far: 5"
-                pinch-raycast-click>
+                raycaster="objects: .clickable; showLine: true; lineColor: #FACC15; far: 6; interval: 50"
+                cursor="downEvents: pinchstarted, selectstart, triggerdown; upEvents: pinchended, selectend, triggerup"
+                universal-vr-interaction>
       </a-entity>
     </a-entity>
 
@@ -155,17 +221,19 @@
     const exportWrapper = document.getElementById('export-wrapper');
     const exportBtn = document.getElementById('export-btn');
 
-    // کلیک روی دکمه شروع
-    startBtn.addEventListener('click', () => {
+    // کلیک روی دکمه شروع (پشتیبانی همزمان از click، touch و pinch)
+    function handleStartClick() {
       if (isTaskRunning) return;
       startTask();
-    });
+    }
+    startBtn.addEventListener('click', handleStartClick);
 
     // پاسخ کاربر به محرک هدف
-    stimulusEl.addEventListener('click', () => {
+    function handleStimulusClick() {
       if (!isTaskRunning || !stimulusEl.getAttribute('visible')) return;
       handleUserHit();
-    });
+    }
+    stimulusEl.addEventListener('click', handleStimulusClick);
 
     // دانلود خروجی آزمون
     exportBtn.addEventListener('click', () => {
