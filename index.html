@@ -2,249 +2,288 @@
 <html lang="fa">
 <head>
   <meta charset="utf-8">
-  <title>Cognitive WebXR - Hand Tracking & CSV Export</title>
+  <title>Cognitive Task - Hand Pinch Fixed</title>
   <!-- کتابخانه استاندارد A-Frame -->
   <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+
+  <script>
+    // کامپوننت هوشمند اتصال نیشگون دست و تریگر به کلیک المان نشانه رفته
+    AFRAME.registerComponent('pinch-raycast-click', {
+      init: function () {
+        const el = this.el;
+
+        const performClick = () => {
+          const raycaster = el.components.raycaster;
+          if (raycaster && raycaster.intersectedEls.length > 0) {
+            // المان هدف که اشعه زرد به آن تابیده شده است
+            const targetEl = raycaster.intersectedEls[0];
+            targetEl.emit('click');
+            
+            // بازخورد حسی صوتی مختصر (Web Audio API)
+            try {
+              const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+              const osc = audioCtx.createOscillator();
+              const gain = audioCtx.createGain();
+              osc.connect(gain);
+              gain.connect(audioCtx.destination);
+              osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+              gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+              gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.1);
+              osc.start();
+              osc.stop(audioCtx.currentTime + 0.1);
+            } catch (e) {}
+          }
+        };
+
+        // شنود رویدادهای دست و کنترلر
+        el.addEventListener('pinchstarted', performClick);
+        el.addEventListener('select', performClick);
+        el.addEventListener('triggerdown', performClick);
+        el.addEventListener('click', performClick);
+      }
+    });
+
+    // مدیریت انیمیشن و تغییر رنگ دکمه در زمان نشانه رفتن (Hover Effect)
+    AFRAME.registerComponent('interactive-hover', {
+      schema: {
+        hoverColor: { type: 'color', default: '#38BDF8' },
+        defaultColor: { type: 'color', default: '#0284C7' }
+      },
+      init: function () {
+        const el = this.el;
+        el.addEventListener('raycaster-intersected', () => {
+          el.setAttribute('color', this.data.hoverColor);
+          el.setAttribute('scale', '1.05 1.05 1.05');
+        });
+        el.addEventListener('raycaster-intersected-cleared', () => {
+          el.setAttribute('color', this.data.defaultColor);
+          el.setAttribute('scale', '1 1 1');
+        });
+      }
+    });
+  </script>
 </head>
 <body>
 
-  <a-scene background="color: #0f1117">
-    
-    <!-- نورپردازی -->
-    <a-entity light="type: ambient; color: #BBB"></a-entity>
-    <a-entity light="type: directional; color: #FFF; intensity: 0.8" position="-1 2 1"></a-entity>
+  <a-scene 
+    background="color: #0b1120"
+    webxr="optionalFeatures: hand-tracking, hit-test, local-floor; referenceSpaceType: local-floor">
 
-    <!-- پنل اطلاعات و وضعیت آزمون -->
-    <a-text id="scoreboard" 
-            value="Pinch button below or use controller to Start" 
-            position="0 2.1 -2" 
+    <!-- نورپردازی سه بعدی محیط -->
+    <a-entity light="type: ambient; color: #FFFFFF; intensity: 0.8"></a-entity>
+    <a-entity light="type: directional; color: #E0F2FE; intensity: 0.8" position="0 3 2"></a-entity>
+
+    <!-- نمایشگر وضعیت بالای دکمه -->
+    <a-text id="status-title" 
+            value="انگشت اشاره و شست را به هم بزنید (Pinch)" 
+            position="0 2.2 -1.8" 
             align="center" 
-            width="3.8" 
-            color="#FFFFFF">
+            width="3.5" 
+            color="#E2E8F0">
     </a-text>
 
-    <!-- دکمه سه‌بعدی شروع آزمون -->
-    <a-entity id="start-btn" position="0 1.6 -1.8" class="clickable">
-      <a-box width="0.7" height="0.25" depth="0.05" color="#0077FF"></a-box>
-      <a-text value="START TEST" align="center" position="0 0 0.03" scale="0.5 0.5 0.5" color="#FFF"></a-text>
+    <!-- دکمه شروع آزمون (START) -->
+    <a-entity id="start-wrapper" position="0 1.5 -1.8">
+      <a-box id="start-btn" 
+             class="clickable" 
+             width="0.9" height="0.3" depth="0.06" 
+             color="#0284C7" 
+             interactive-hover="defaultColor: #0284C7; hoverColor: #38BDF8">
+        <a-text value="START TEST" align="center" position="0 0 0.04" scale="0.6 0.6 0.6" color="#FFFFFF"></a-text>
+      </a-box>
     </a-entity>
 
-    <!-- محرک آزمون (Go/No-Go Sphere) -->
-    <a-sphere id="stimulus" position="0 1.5 -2" radius="0.22" visible="false" class="clickable"></a-sphere>
+    <!-- محرک آزمون شناختی (Go / No-Go) -->
+    <a-sphere id="stimulus-sphere" 
+              class="clickable" 
+              position="0 1.5 -2.2" 
+              radius="0.22" 
+              visible="false"
+              interactive-hover="defaultColor: #10B981; hoverColor: #34D399">
+    </a-sphere>
 
-    <!-- دکمه سه‌بعدی دانلود CSV (در پایان آزمون ظاهر می‌شود) -->
-    <a-entity id="export-btn" position="0 1.2 -1.8" visible="false" class="clickable">
-      <a-box width="0.9" height="0.25" depth="0.05" color="#00AA55"></a-box>
-      <a-text value="DOWNLOAD CSV" align="center" position="0 0 0.03" scale="0.45 0.45 0.45" color="#FFF"></a-text>
+    <!-- دکمه دانلود داده‌ها (CSV) -->
+    <a-entity id="export-wrapper" position="0 1.1 -1.8" visible="false">
+      <a-box id="export-btn" 
+             class="clickable" 
+             width="0.9" height="0.28" depth="0.06" 
+             color="#059669"
+             interactive-hover="defaultColor: #059669; hoverColor: #10B981">
+        <a-text value="DOWNLOAD CSV" align="center" position="0 0 0.04" scale="0.5 0.5 0.5" color="#FFFFFF"></a-text>
+      </a-box>
     </a-entity>
 
-    <!-- سیستم ریگ دوربین، کنترلرها و ردیابی دست -->
-    <a-entity id="rig" position="0 0 0">
+    <!-- سیستم ردیابی دست‌ها، کنترلرها و دوربین -->
+    <a-entity id="rig">
       <a-camera position="0 1.6 0">
-        <!-- ری‌کستر نگاه (Gaze Fallback) -->
-        <a-cursor fuse="false" raycaster="objects: .clickable" color="#FFFF00" scale="0.5 0.5 0.5"></a-cursor>
+        <!-- کرسر کمکی برای تست راحت با ماوس روی دسکتاپ -->
+        <a-cursor fuse="false" raycaster="objects: .clickable" color="#FACC15" scale="0.4 0.4 0.4"></a-cursor>
       </a-camera>
-      
-      <!-- کنترلرهای فیزیکی سنتی (در صورت استفاده از دسته‌ها) -->
-      <a-entity laser-controls="hand: right" raycaster="objects: .clickable; lineColor: #00FFCC; lineOpacity: 0.5"></a-entity>
-      <a-entity laser-controls="hand: left" raycaster="objects: .clickable; lineColor: #00FFCC; lineOpacity: 0.5"></a-entity>
 
-      <!-- ردیابی دست راست (Hand Tracking) -->
-      <a-entity hand-tracking-controls="hand: right; modelStyle: mesh"
-                raycaster="objects: .clickable; showLine: true; lineColor: #FFDD00; origin: 0 0 0; direction: 0 0 -1">
+      <!-- دست راست مجهز به رهگیری دست و اتصال مستقیم نیشگون به اشعه -->
+      <a-entity id="rightHand"
+                hand-tracking-controls="hand: right; modelStyle: mesh"
+                laser-controls="hand: right"
+                raycaster="objects: .clickable; showLine: true; lineColor: #FACC15; far: 5"
+                pinch-raycast-click>
       </a-entity>
 
-      <!-- ردیابی دست چپ (Hand Tracking) -->
-      <a-entity hand-tracking-controls="hand: left; modelStyle: mesh"
-                raycaster="objects: .clickable; showLine: true; lineColor: #FFDD00; origin: 0 0 0; direction: 0 0 -1">
+      <!-- دست چپ -->
+      <a-entity id="leftHand"
+                hand-tracking-controls="hand: left; modelStyle: mesh"
+                laser-controls="hand: left"
+                raycaster="objects: .clickable; showLine: true; lineColor: #FACC15; far: 5"
+                pinch-raycast-click>
       </a-entity>
     </a-entity>
 
   </a-scene>
 
   <script>
-    let isTaskActive = false;
+    let isTaskRunning = false;
     let stimulusType = null;
-    let stimulusStartTime = 0;
-    let timeoutId = null;
-    let trialCount = 0;
-    const maxTrials = 12;
-    const resultsLog = [];
+    let stimulusShownTime = 0;
+    let timeoutTimer = null;
+    let currentTrial = 0;
+    const maxTrials = 10;
+    const sessionRecords = [];
 
-    const stimulusEl = document.getElementById('stimulus');
-    const scoreboard = document.getElementById('scoreboard');
+    const stimulusEl = document.getElementById('stimulus-sphere');
+    const statusText = document.getElementById('status-title');
+    const startWrapper = document.getElementById('start-wrapper');
     const startBtn = document.getElementById('start-btn');
+    const exportWrapper = document.getElementById('export-wrapper');
     const exportBtn = document.getElementById('export-btn');
 
-    // لیسنر دکمه شروع
+    // کلیک روی دکمه شروع
     startBtn.addEventListener('click', () => {
-      if (!isTaskActive) {
-        startBtn.setAttribute('visible', 'false');
-        startBtn.classList.remove('clickable');
-        exportBtn.setAttribute('visible', 'false');
-        exportBtn.classList.remove('clickable');
-        startTask();
-      }
+      if (isTaskRunning) return;
+      startTask();
     });
 
-    // پاسخ کاربر به محرک
+    // پاسخ کاربر به محرک هدف
     stimulusEl.addEventListener('click', () => {
-      if (!isTaskActive) return;
-      handleResponse();
+      if (!isTaskRunning || !stimulusEl.getAttribute('visible')) return;
+      handleUserHit();
     });
 
-    // لیسنر خروجی CSV
+    // دانلود خروجی آزمون
     exportBtn.addEventListener('click', () => {
-      exportToCSV();
+      exportCSV();
     });
 
     function startTask() {
-      isTaskActive = true;
-      trialCount = 0;
-      resultsLog.length = 0;
-      scoreboard.setAttribute('value', 'Task Running: Pinch GREEN, Ignore RED');
-      runTrial();
+      isTaskRunning = true;
+      currentTrial = 0;
+      sessionRecords.length = 0;
+
+      startWrapper.setAttribute('visible', 'false');
+      startBtn.classList.remove('clickable');
+      exportWrapper.setAttribute('visible', 'false');
+      exportBtn.classList.remove('clickable');
+
+      statusText.setAttribute('value', 'تست آغاز شد: روی سبز Pinch کنید، به قرمز واکنش ندهید');
+      nextTrial();
     }
 
-    function runTrial() {
-      if (trialCount >= maxTrials) {
+    function nextTrial() {
+      if (currentTrial >= maxTrials) {
         endTask();
         return;
       }
 
-      trialCount++;
+      currentTrial++;
       stimulusEl.setAttribute('visible', 'false');
 
-      // وقفه بین محرک‌ها (۱.۲ تا ۲.۲ ثانیه)
-      const isi = Math.floor(Math.random() * 1000) + 1200;
+      // وقفه تصادفی بین ۱ تا ۲ ثانیه
+      const isi = Math.floor(Math.random() * 1000) + 1000;
 
       setTimeout(() => {
-        // ۷۵ درصد احتمال Go و ۲۵ درصد No-Go
-        stimulusType = Math.random() < 0.75 ? 'go' : 'nogo';
+        stimulusType = Math.random() < 0.7 ? 'Go' : 'NoGo';
 
-        // توزیع تصادفی محرک در میدان دید
-        const posX = (Math.random() - 0.5) * 1.4;
-        const posY = 1.3 + Math.random() * 0.5;
-        stimulusEl.setAttribute('position', `${posX} ${posY} -2`);
+        // توزیع تصادفی موقعیت
+        const xPos = (Math.random() - 0.5) * 1.3;
+        const yPos = 1.3 + Math.random() * 0.4;
+        stimulusEl.setAttribute('position', `${xPos} ${yPos} -2.2`);
 
-        stimulusEl.setAttribute('color', stimulusType === 'go' ? '#00FF66' : '#FF2222');
+        const stimColor = stimulusType === 'Go' ? '#10B981' : '#EF4444';
+        stimulusEl.setAttribute('color', stimColor);
+        stimulusEl.setAttribute('interactive-hover', `defaultColor: ${stimColor}; hoverColor: #FFFFFF`);
         stimulusEl.setAttribute('visible', 'true');
 
-        stimulusStartTime = performance.now();
+        stimulusShownTime = performance.now();
 
-        // پنجره پاسخ زمانی (۱ ثانیه)
-        timeoutId = setTimeout(() => {
+        // مهلت پاسخ‌دهی ۱.۱ ثانیه
+        timeoutTimer = setTimeout(() => {
           handleOmission();
-        }, 1000);
+        }, 1100);
 
       }, isi);
     }
 
-    function handleResponse() {
-      clearTimeout(timeoutId);
-      const reactionTime = Math.round(performance.now() - stimulusStartTime);
+    function handleUserHit() {
+      clearTimeout(timeoutTimer);
+      const rt = Math.round(performance.now() - stimulusShownTime);
       stimulusEl.setAttribute('visible', 'false');
 
-      if (stimulusType === 'go') {
-        resultsLog.push({
-          trial: trialCount,
-          type: 'Go',
-          response: 'Hit',
-          rt_ms: reactionTime,
-          error_type: 'None'
-        });
-        scoreboard.setAttribute('value', `Correct! RT: ${reactionTime} ms`);
+      if (stimulusType === 'Go') {
+        sessionRecords.push({ trial: currentTrial, type: 'Go', response: 'Hit', rt: rt, error: 'None' });
+        statusText.setAttribute('value', `پاسخ صحیح! زمان: ${rt} میلی‌ثانیه`);
       } else {
-        resultsLog.push({
-          trial: trialCount,
-          type: 'No-Go',
-          response: 'False Alarm',
-          rt_ms: reactionTime,
-          error_type: 'Commission'
-        });
-        scoreboard.setAttribute('value', 'Commission Error! Red was pressed');
+        sessionRecords.push({ trial: currentTrial, type: 'NoGo', response: 'FalseAlarm', rt: rt, error: 'Commission' });
+        statusText.setAttribute('value', 'خطا! به محرک قرمز نباید واکنش داد.');
       }
 
-      runTrial();
+      nextTrial();
     }
 
     function handleOmission() {
       stimulusEl.setAttribute('visible', 'false');
 
-      if (stimulusType === 'go') {
-        resultsLog.push({
-          trial: trialCount,
-          type: 'Go',
-          response: 'Miss',
-          rt_ms: 'NA',
-          error_type: 'Omission'
-        });
-        scoreboard.setAttribute('value', 'Missed Target (Omission)');
+      if (stimulusType === 'Go') {
+        sessionRecords.push({ trial: currentTrial, type: 'Go', response: 'Miss', rt: 'NA', error: 'Omission' });
+        statusText.setAttribute('value', 'هدف از دست رفت (خطای حذف)');
       } else {
-        resultsLog.push({
-          trial: trialCount,
-          type: 'No-Go',
-          response: 'Correct Rejection',
-          rt_ms: 'NA',
-          error_type: 'None'
-        });
-        scoreboard.setAttribute('value', 'Successful Inhibition!');
+        sessionRecords.push({ trial: currentTrial, type: 'NoGo', response: 'CorrectReject', rt: 'NA', error: 'None' });
+        statusText.setAttribute('value', 'مهار موفقیت‌آمیز');
       }
 
-      runTrial();
+      nextTrial();
     }
 
     function endTask() {
-      isTaskActive = false;
+      isTaskRunning = false;
       stimulusEl.setAttribute('visible', 'false');
 
-      const hits = resultsLog.filter(r => r.type === 'Go' && r.response === 'Hit');
-      const meanRT = hits.length > 0 
-        ? Math.round(hits.reduce((sum, r) => sum + r.rt_ms, 0) / hits.length) 
-        : 0;
-      const commErrors = resultsLog.filter(r => r.error_type === 'Commission').length;
-      const omissErrors = resultsLog.filter(r => r.error_type === 'Omission').length;
+      const hits = sessionRecords.filter(r => r.type === 'Go' && r.response === 'Hit');
+      const meanRT = hits.length > 0 ? Math.round(hits.reduce((s, r) => s + r.rt, 0) / hits.length) : 0;
+      const commissionCount = sessionRecords.filter(r => r.error === 'Commission').length;
 
-      scoreboard.setAttribute('value', 
-        `Test Completed!\nMean RT: ${meanRT} ms | Comm Errors: ${commErrors} | Omiss Errors: ${omissErrors}`
-      );
+      statusText.setAttribute('value', `پایان آزمون!\nمیانگین زمان: ${meanRT}ms | خطای ارتکاب: ${commissionCount}`);
 
-      // فعال‌سازی دکمه دانلود و دکمه شروع مجدد
-      exportBtn.setAttribute('visible', 'true');
-      exportBtn.classList.add('clickable');
-
-      startBtn.setAttribute('visible', 'true');
+      startWrapper.setAttribute('visible', 'true');
       startBtn.classList.add('clickable');
-      startBtn.querySelector('a-text').setAttribute('value', 'RESTART');
+      startBtn.querySelector('a-text').setAttribute('value', 'RETRY');
+
+      exportWrapper.setAttribute('visible', 'true');
+      exportBtn.classList.add('clickable');
     }
 
-    // تولید و دانلود فایل CSV در مرورگر هدست
-    function exportToCSV() {
-      if (resultsLog.length === 0) return;
+    function exportCSV() {
+      if (sessionRecords.length === 0) return;
 
-      const headers = ['Trial', 'Stimulus_Type', 'Response', 'ReactionTime_ms', 'Error_Type'];
-      const csvRows = [headers.join(',')];
+      const header = ['Trial,Stimulus_Type,Response,ReactionTime_ms,Error_Type'];
+      const rows = sessionRecords.map(r => `${r.trial},${r.type},${r.response},${r.rt},${r.error}`);
+      const csv = '\uFEFF' + header.concat(rows).join('\n');
 
-      resultsLog.forEach(row => {
-        csvRows.push([
-          row.trial,
-          row.type,
-          row.response,
-          row.rt_ms,
-          row.error_type
-        ].join(','));
-      });
-
-      const csvContent = '\uFEFF' + csvRows.join('\n'); // افزودن BOM برای سازگاری با اکسل و متون
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
-
-      const downloadLink = document.createElement('a');
-      downloadLink.href = url;
-      downloadLink.setAttribute('download', `cognitive_test_${Date.now()}.csv`);
-      document.body.appendChild(downloadLink);
-      downloadLink.click();
-      document.body.removeChild(downloadLink);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `vr_cognitive_session_${Date.now()}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
       URL.revokeObjectURL(url);
     }
   </script>
